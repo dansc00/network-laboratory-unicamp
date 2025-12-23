@@ -1,7 +1,7 @@
 from scapy.all import ICMP
 import numpy as np
-from analyzer.packet_analyzer import PacketAnalyzer
-from analyzer.ip_analyzer import IpAnalyzer
+from network_traffic_analyzer.packet_analyzer import PacketAnalyzer
+from network_traffic_analyzer.ip_analyzer import IpAnalyzer
 
 # analisador de camada ICMP
 class IcmpAnalyzer(PacketAnalyzer):

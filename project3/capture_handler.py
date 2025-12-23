@@ -1,4 +1,4 @@
-from analyzer.packet_analyzer import PacketAnalyzer
+from network_traffic_analyzer.packet_analyzer import PacketAnalyzer
 
 path = "capture/200701011800.dump"
 pkt = PacketAnalyzer(id="dump", packetsMargin=None, path=path)

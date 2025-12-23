@@ -1,7 +1,7 @@
 from scapy.all import rdpcap
 from collections import Counter
 import numpy as np
-from analyzer.graph_plotter import GraphPlotter
+from network_traffic_analyzer.graph_plotter import GraphPlotter
 import sys
 
 # analisador de pacotes em capturas .pcap
@@ -248,6 +248,5 @@ class PacketAnalyzer():
         lossRateGraph.plotPizzaGraph(["received packets", "lost packets"], [100-lossRate, lossRate], ["green", "red"])
         lossRateGraph.saveGraph(path+id+"-loss-rate.png")
 
-    
 
-    
+

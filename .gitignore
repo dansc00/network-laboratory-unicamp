@@ -9,3 +9,7 @@ __pycache__/
 *.dump
 *.parquet
 .venv
+*.egg-info/
+build/
+dist/
+*.egg
