@@ -10,20 +10,6 @@ A comprehensive Python library for analyzing network traffic from PCAP files. Th
 - **Flexible Architecture**: Extensible base classes for custom protocol analyzers
 - **PCAP Processing**: Direct support for PCAP file analysis using Scapy
 
-## Installation
-
-### Virtual Environment
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-### Requirements and Setup
-```bash
-pip install -r requirements.txt
-pip install -e .
-```
-
 ## Quick Start
 
 ### Basic Usage
