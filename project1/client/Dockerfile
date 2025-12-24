@@ -10,5 +10,6 @@ COPY . .
 RUN gcc client.c -o client
 
 # Define o comando que será executado ao iniciar o container
-CMD ["tail", "-f", "/dev/null"] 
-#CMD ["./client 172.25.0.10"]
+# Mantém o container executando para testes
+#CMD ["tail", "-f", "/dev/null"] 
+CMD ["./client", "172.25.0.10"]
