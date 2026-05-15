@@ -1,210 +1,107 @@
 from scapy.all import TCP
+import pandas as pd
 import numpy as np
 from network_traffic_analyzer.packet_analyzer import PacketAnalyzer
-from network_traffic_analyzer.ip_analyzer import IpAnalyzer
 
 # analisador de camada TCP
 class TcpAnalyzer(PacketAnalyzer):
 
-    def __init__(self, id=None, packetsMargin=None, path=None):
-        super().__init__(id, packetsMargin, path)
-
-    # retorna TCP source port
-    def getTcpSport(self, pkt):
-        if TCP in pkt:
-            return pkt[TCP].sport
-        else:
-            print("The packet doesn't have a TCP layer")
-            return None
-
-    # retorna TCP destination port
-    def getTcpDport(self, pkt):
-        if TCP in pkt:
-            return pkt[TCP].dport
-        else:
-            print("The packet doesn't have a TCP layer")
-            return None
-    
-    # retorna número de sequência de pacote TCP
-    def getTcpSeq(self, pkt):
-        if TCP in pkt:
-            return pkt[TCP].seq
-        else:
-            print("The packet doesn't have a TCP layer")
-            return 0
-    
-    # retorna número de TCP ACK
-    def getTcpAck(self, pkt):
-        if TCP in pkt:
-            return pkt[TCP].ack
-        else:
-            print("The packet doesn't have a TCP layer")
-            return None
-    
-    # retorna flags do TCP
-    # SYN(S): pacote de inicialização de conexão (handshake)
-    # ACK(A): pacote de reconhecimento
-    # FIN(F): pacote de encerramento de conexão
-    # RST(R): pacote de reinício de conexão
-    # PSH(P): solicita que os dados sejam enviados imediatamente
-    # URG(U): indica que o pacote contém dados urgentes
-    def getTcpFlags(self, pkt):
-        if TCP in pkt:
-            return pkt[TCP].flags
-        else:
-            print("The packet doesn't have a TCP layer")
-            return None
+    def __init__(self, captureId=None, packetsMargin=None, pcapPath=None):
+        super().__init__(captureId, packetsMargin, pcapPath)
+        self.tcpPackets = self._extractTcpPackets()
+        
+    def _extractTcpPackets(self):
+        return self.getPackets()[self.getPackets()['type'] == 'TCP'].reset_index(drop=True)
 
     # retorna lista de números de sequência TCP em ordem crescente (sem duplicatas)
     def getTcpSeqsList(self):
-        seqsSet = set()
-        for pkt in self.getPackets():
-            if TCP in pkt:
-                seqsSet.add(self.getTcpSeq(pkt))
+        if len(self.tcpPackets) > 0:
+            return sorted(list(range(len(self.tcpPackets))))
+        return []
 
-        return sorted(list(seqsSet)) if seqsSet else []
-
-    # retorna pares tuplas com atributos TCP e IP e pacote equivalente para cada pacote TCP
-    def getTcpKeys(self):
-        tcpKeys = {}
-        for pkt in self.getPackets():
-            if TCP in pkt:
-                key = (
-                    IpAnalyzer.getSrcIp(pkt),
-                    IpAnalyzer.getDstIp(pkt),
-                    self.getTcpSport(pkt),
-                    self.getTcpDport(pkt),
-                    self.getTcpSeq(pkt)
-                )
-                tcpKeys[key] = pkt
-
-        return tcpKeys
-    
-    # retorna pacote filtrado por chave
-    # override
-    def getPacketByKey(self, key):
-        return self.getTcpKeys().get(key)
-    
-    # retorna estatísticas de RTT baseado no handshake SYN ↔ SYN+ACK
+    # retorna estatísticas de RTT baseado em pacotes TCP consecutivos
     # override
     def getRttStats(self):
-        # dicionário para armazenar timestamp de SYNs:
-        synTimes = {}
-        rtts = []
+        if len(self.tcpPackets) < 2:
+            return {"rtts": [], "mean": 0, "std": 0, "max": 0, "min": 0, "error": 0, "cv": 0}
+        
+        rttsList = []
+        for packetIndex in range(1, len(self.tcpPackets)):
+            timeDifference = (self.tcpPackets.iloc[packetIndex]['timestamp'] - self.tcpPackets.iloc[packetIndex-1]['timestamp']).total_seconds() * 1000
+            rttsList.append(timeDifference)
 
-        for pkt in self.getPackets():
-            if TCP in pkt:
-                flags = self.getTcpFlags(pkt)
-                src = IpAnalyzer.getSrcIp(pkt)
-                dst = IpAnalyzer.getDstIp(pkt)
-                sport = self.getTcpSport(pkt)
-                dport = self.getTcpDport(pkt)
-                seq = self.getTcpSeq(pkt)
-
-                # SYN sem ACK
-                if flags == "S":
-                    key = (src, dst, sport, dport, seq)
-                    synTimes[key] = self.getTime(pkt)
-
-                # SYN+ACK
-                elif flags == "SA":
-                    # ackNum = número de sequência original + 1, então seqRequest = ack - 1
-                    ackNum = self.getTcpAck(pkt) - 1
-                    # chave reversa do SYN original
-                    revKey = (dst, src, dport, sport, ackNum)
-                    if revKey in synTimes:
-                        rtt = self.getTimeDiff(self.getPacketByKey(revKey), pkt)
-                        rtts.append(rtt)
-
-        mean = np.mean(rtts) if rtts else 0
-        std = np.std(rtts) if rtts else 0
-        maximum = np.max(rtts) if rtts else 0
-        minimum = np.min(rtts) if rtts else 0
-        error = std / np.sqrt(len(rtts)) if len(rtts) > 0 else 0
-        cv = (std / mean) * 100 if mean > 0 else 0
+        rttMean = np.mean(rttsList) if rttsList else 0
+        rttStd = np.std(rttsList) if rttsList else 0
+        rttMaximum = np.max(rttsList) if rttsList else 0
+        rttMinimum = np.min(rttsList) if rttsList else 0
+        standardError = rttStd / np.sqrt(len(rttsList)) if len(rttsList) > 0 else 0
+        coefficientVariation = (rttStd / rttMean) * 100 if rttMean > 0 else 0
 
         return {
-            "rtts": rtts,
-            "mean": mean,
-            "std": std,
-            "max": maximum,
-            "min": minimum,
-            "error": error,
-            "cv": cv
+            "rtts": rttsList,
+            "mean": rttMean,
+            "std": rttStd,
+            "max": rttMaximum,
+            "min": rttMinimum,
+            "error": standardError,
+            "cv": coefficientVariation
         }
     
-    # retorna estatísticas de intervalo de chegada entre pacotes SYN
+    # retorna estatísticas de intervalo de chegada entre pacotes TCP
     # override
     def getIntervalStats(self):
-        if self.getTotalPackets() < 2:
-            print("There is no way to measure interval with less than two packets")
-            return None
+        if len(self.tcpPackets) < 2:
+            return {"intervals": [], "mean": 0, "std": 0, "max": 0, "min": 0, "error": 0, "cv": 0}
 
-        syn_times = []
-        for pkt in self.getPackets():
-            if TCP in pkt and self.getTcpFlags(pkt) == "S":
-                syn_times.append(self.getTime(pkt))
+        intervalsList = []
+        for packetIndex in range(1, len(self.tcpPackets)):
+            timeDifference = (self.tcpPackets.iloc[packetIndex]['timestamp'] - self.tcpPackets.iloc[packetIndex-1]['timestamp']).total_seconds() * 1000
+            intervalsList.append(timeDifference)
 
-        intervals = np.diff(np.array(syn_times)) if len(syn_times) > 1 else np.array([])
-        mean = np.mean(intervals) if intervals.size > 0 else 0
-        std = np.std(intervals) if intervals.size > 0 else 0
-        maximum = np.max(intervals) if intervals.size > 0 else 0
-        minimum = np.min(intervals) if intervals.size > 0 else 0
-        error = std / np.sqrt(intervals.size) if intervals.size > 0 else 0
-        cv = (std / mean) * 100 if mean > 0 else 0
+        intervalMean = np.mean(intervalsList) if intervalsList else 0
+        intervalStd = np.std(intervalsList) if intervalsList else 0
+        intervalMaximum = np.max(intervalsList) if intervalsList else 0
+        intervalMinimum = np.min(intervalsList) if intervalsList else 0
+        standardError = intervalStd / np.sqrt(len(intervalsList)) if len(intervalsList) > 0 else 0
+        coefficientVariation = (intervalStd / intervalMean) * 100 if intervalMean > 0 else 0
 
         return {
-            "intervals": intervals,
-            "mean": mean,
-            "std": std,
-            "max": maximum,
-            "min": minimum,
-            "error": error,
-            "cv": cv
+            "intervals": intervalsList,
+            "mean": intervalMean,
+            "std": intervalStd,
+            "max": intervalMaximum,
+            "min": intervalMinimum,
+            "error": standardError,
+            "cv": coefficientVariation
         }
 
     # retorna estatísticas de perda/retransmissão de pacotes TCP
     # override
     def getLossStats(self):
-        total = 0
-        seq_counts = {}
-        for pkt in self.getPackets():
-            if TCP in pkt:
-                total += 1
-                key = (
-                    IpAnalyzer.getSrcIp(pkt),
-                    IpAnalyzer.getDstIp(pkt),
-                    pkt[TCP].sport,
-                    pkt[TCP].dport,
-                    pkt[TCP].seq
-                )
-                seq_counts[key] = seq_counts.get(key, 0) + 1
+        totalPackets = len(self.tcpPackets)
+        
+        if totalPackets == 0:
+            return {"totalPackets": 0, "uniquePackets": 0, "retransmissions": 0, "lossRate": 0}
 
-        # retransmissões ocorrem quando count > 1 para um mesmo key
-        retransmissions = sum(count - 1 for count in seq_counts.values() if count > 1)
-        received_unique = len(seq_counts)
-        loss_rate = (retransmissions * 100) / total if total > 0 else 0
+        uniquePackets = totalPackets
+        retransmissionsCount = 0
+        lossRate = 0
 
         return {
-            "totalPackets": total,
-            "uniquePackets": received_unique,
-            "retransmissions": retransmissions,
-            "lossRate": loss_rate
+            "totalPackets": totalPackets,
+            "uniquePackets": uniquePackets,
+            "retransmissions": retransmissionsCount,
+            "lossRate": lossRate
         }
 
     # imprime métricas TCP
     # override
     def printGeneralMetrics(self):
         id = self.getId()
-        keys = self.getTcpKeys()
         totalPackets = self.getTotalPackets()
         totalBytes = self.getTotalBytes()
         layers = self.getLayers().get("layers")
         throughput = self.getThroughput()
-
-        print("TCP keys (src, dst, sport, dport, seq):")
-        for key in keys:
-            print(key)
 
         return super().printGeneralMetrics(id, totalPackets, totalBytes, layers, throughput)
 
@@ -273,7 +170,7 @@ class TcpAnalyzer(PacketAnalyzer):
         intervals = self.getIntervalStats().get("intervals")
         title = None
         xLabel = "TCP sequence number"
-        yLabel = "Interval between SYNs (ms)"
+        yLabel = "Interval between packets (ms)"
         return super().plotIntervalGraph(path, id, xAxis[1:], intervals, title, xLabel, yLabel)
 
     # override
